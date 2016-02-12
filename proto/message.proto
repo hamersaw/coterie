@@ -18,7 +18,7 @@ message HeartbeatMsg {
 }
 
 message JoinMsg {
-	int64 token = 1;
+	repeated int64 tokens = 1;
 	SocketAddr address = 2;
 }
 

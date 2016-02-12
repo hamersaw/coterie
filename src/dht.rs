@@ -3,7 +3,10 @@ use std::net::{SocketAddrV4,TcpListener};
 use std::sync::{Arc,RwLock};
 use std::thread;
 
+use message::{DHTMsg,DHTMsg_Type,JoinMsg,SocketAddr};
+
 pub struct DHTService {
+    tokens: Vec<i64>,
     app_addr: SocketAddrV4,
     dht_addr: SocketAddrV4,
     seeds: Vec<SocketAddrV4>,
@@ -15,9 +18,12 @@ impl DHTService {
     pub fn new(tokens: Vec<i64>, app_addr: SocketAddrV4, dht_addr: SocketAddrV4, seeds: Vec<SocketAddrV4>) -> DHTService {
         //create and populate initial lookup table
         let mut lookup_table = BTreeMap::new();
-        tokens.into_iter().map(|x| { lookup_table.insert(x, app_addr) });
+        for token in tokens.clone() {
+            lookup_table.insert(token, app_addr).unwrap();
+        }
 
         DHTService {
+            tokens: tokens,
             app_addr: app_addr,
             dht_addr: dht_addr,
             seeds: seeds,
@@ -32,6 +38,7 @@ impl DHTService {
         //sending join messages to all of the seeds
         for seed_addr in self.seeds.clone() {
             debug!("Sending JoinMsg to seed:{}", seed_addr);
+            self.send_join_msg(seed_addr).unwrap();
         }
 
         let listener = TcpListener::bind(self.dht_addr).ok().expect("Unable to bind to address");
@@ -72,6 +79,13 @@ impl DHTService {
         *first_tuple.1
     }
 
+    fn send_join_msg(&self, addr: SocketAddrV4) -> Result<(),String> {
+        let join_msg = create_join_msg(&self.tokens, &self.app_addr);
+
+        //TODO open up a stream and send the join
+        Ok(())
+    }
+
     fn add_token(&mut self, token: i64, addr: SocketAddrV4) {
         let mut lookup_table = self.lookup_table.write().unwrap();
         lookup_table.entry(token).or_insert(addr);
@@ -91,4 +105,24 @@ impl DHTService {
         let mut dht_peer_table = self.dht_peer_table.write().unwrap();
         dht_peer_table.remove(addr);
     }
+}
+
+fn create_join_msg(tokens: &Vec<i64>, addr: &SocketAddrV4) -> DHTMsg {
+    let socket_addr = create_socket_addr(addr);
+    let mut join_msg = JoinMsg::new();
+    join_msg.set_tokens(tokens.clone());
+    join_msg.set_address(socket_addr);
+
+    let mut dht_msg = DHTMsg::new();
+    dht_msg.set_field_type(DHTMsg_Type::JOIN);
+    dht_msg.set_join_msg(join_msg);
+    dht_msg
+}
+
+fn create_socket_addr(addr: &SocketAddrV4) -> SocketAddr {
+    let mut socket_addr = SocketAddr::new();
+    socket_addr.set_ip_address(format!("{}", addr.ip()));
+    socket_addr.set_port(addr.port() as u32);
+
+    socket_addr
 }

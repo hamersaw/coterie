@@ -1,7 +1,7 @@
-#SMDB
+#coterie
 
 ##Overview
-String matching database is an application to use string matching techniques to query database records.
+Distributed string fuzzy matching application.
 
 ##Compile
 protoc --rust_out=src/ proto/message.proto
