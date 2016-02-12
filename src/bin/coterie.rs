@@ -78,9 +78,6 @@ pub fn main() {
     let dht_service = DHTService::new(tokens, app_addr, dht_addr, seeds);
     dht_service.start();
 
-    
-    debug!("lookup(100):{}", dht_service.lookup(100));
-
     //start the fuzzydb listener
     info!("starting the application with ip_address:{} port:{}", app_ip_address, app_port);
     let listener = TcpListener::bind(app_addr).ok().expect("Unable to bind to address");

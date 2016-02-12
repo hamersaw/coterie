@@ -4,7 +4,7 @@ use std::net::{SocketAddrV4,TcpListener,TcpStream};
 use std::sync::{Arc,RwLock};
 use std::thread;
 
-use protobuf::{CodedOutputStream,Message};
+use protobuf::{CodedInputStream,CodedOutputStream};
 use message::{DHTMsg,DHTMsg_Type,JoinMsg,SocketAddr};
 
 pub struct DHTService {
@@ -21,7 +21,7 @@ impl DHTService {
         //create and populate initial lookup table
         let mut lookup_table = BTreeMap::new();
         for token in tokens.clone() {
-            lookup_table.insert(token, app_addr).unwrap();
+            lookup_table.insert(token, app_addr);
         }
 
         DHTService {
@@ -40,24 +40,32 @@ impl DHTService {
         //sending join messages to all of the seeds
         for seed_addr in self.seeds.clone() {
             debug!("Sending JoinMsg to seed:{}", seed_addr);
-            self.send_join_msg(seed_addr).unwrap();
+            self.send_join_msg(seed_addr).ok().expect("unable to send join message");
         }
 
         let listener = TcpListener::bind(self.dht_addr).ok().expect("unable to bind to address");
         let (lookup_table, dht_peer_table) = (self.lookup_table.clone(), self.dht_peer_table.clone());
         thread::spawn(move || {
             for stream in listener.incoming() {
-                let stream = stream.ok().expect("unable to unwrap TcpStream");
                 let (lookup_table, dht_peer_table) = (lookup_table.clone(), dht_peer_table.clone());
                 thread::spawn(move || {
+                    let mut stream = stream.ok().expect("unable to unwrap TcpStream");
                     debug!("recv dht message");
-                    //TODO read and process messages
+
+                    let msg = read_dht_msg(&mut stream).ok().expect("unable to read dht msg from tcp stream");
+                    match msg.get_field_type() {
+                        DHTMsg_Type::JOIN => {
+                            debug!("recv join msg");
+                        },
+                        _ => panic!("unimplemented dht msg type"),
+                    }
                 });
             }
         });
     }
 
     pub fn lookup(&self, token: i64) -> SocketAddrV4 {
+        debug!("lookup on token:{}", token);
         let lookup_table = self.lookup_table.read().unwrap();
 
         //get first (smallest) token from the peer table
@@ -86,7 +94,7 @@ impl DHTService {
         let join_msg = create_join_msg(&self.tokens, format!("{}", self.app_addr.ip()), self.app_addr.port() as u32);
 
         let mut stream = TcpStream::connect(addr).ok().expect("unable to connect to tcp stream to send join msg");
-        write_dht_msg(&join_msg, &mut stream);
+        write_dht_msg(&join_msg, &mut stream).ok().expect("unable to write join message to tcp stream");
 
         //TODO read response
 
@@ -115,16 +123,18 @@ impl DHTService {
 }
 
 fn write_dht_msg(msg: &DHTMsg, stream: &mut TcpStream) -> Result<(),String> {
-    let size = msg.compute_size();
-    debug!("writing dht message with size:{}", size);
-
-    let size_bytes = [size as u8, (size >> 8) as u8, (size >> 16) as u8, (size >> 24) as u8];
-    stream.write(&size_bytes).ok().expect("unable to write dht msg size to tcp stream");
-    
     let mut coded_output_stream = CodedOutputStream::new(stream);
-    msg.write_to_with_cached_sizes(&mut coded_output_stream).ok().expect("unable to write dht msg to coded output stream");
+    coded_output_stream.write_message_no_tag(msg).ok().expect("unable to write dht msg to stream");
+    coded_output_stream.flush().ok().expect("unable to flush coded output stream");
 
     Ok(())
+}
+
+fn read_dht_msg(stream: &mut TcpStream) -> Result<DHTMsg,String> {
+    let mut coded_input_stream = CodedInputStream::new(stream);
+    let dht_msg: DHTMsg = coded_input_stream.read_message().ok().expect("unable to read dht msg from stream`");
+
+    Ok(dht_msg)
 }
 
 fn create_join_msg(tokens: &Vec<i64>, ip: String, port: u32) -> DHTMsg {
