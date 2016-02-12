@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap,HashMap};
-use std::net::{SocketAddrV4,TcpListener};
+use std::io::{Read,Write};
+use std::net::{SocketAddrV4,TcpListener,TcpStream};
 use std::sync::{Arc,RwLock};
 use std::thread;
 
+use protobuf::{CodedOutputStream,Message};
 use message::{DHTMsg,DHTMsg_Type,JoinMsg,SocketAddr};
 
 pub struct DHTService {
@@ -41,13 +43,14 @@ impl DHTService {
             self.send_join_msg(seed_addr).unwrap();
         }
 
-        let listener = TcpListener::bind(self.dht_addr).ok().expect("Unable to bind to address");
+        let listener = TcpListener::bind(self.dht_addr).ok().expect("unable to bind to address");
         let (lookup_table, dht_peer_table) = (self.lookup_table.clone(), self.dht_peer_table.clone());
         thread::spawn(move || {
             for stream in listener.incoming() {
-                let stream = stream.ok().expect("Unable to unwrap TcpStream");
+                let stream = stream.ok().expect("unable to unwrap TcpStream");
                 let (lookup_table, dht_peer_table) = (lookup_table.clone(), dht_peer_table.clone());
                 thread::spawn(move || {
+                    debug!("recv dht message");
                     //TODO read and process messages
                 });
             }
@@ -80,9 +83,13 @@ impl DHTService {
     }
 
     fn send_join_msg(&self, addr: SocketAddrV4) -> Result<(),String> {
-        let join_msg = create_join_msg(&self.tokens, &self.app_addr);
+        let join_msg = create_join_msg(&self.tokens, format!("{}", self.app_addr.ip()), self.app_addr.port() as u32);
 
-        //TODO open up a stream and send the join
+        let mut stream = TcpStream::connect(addr).ok().expect("unable to connect to tcp stream to send join msg");
+        write_dht_msg(&join_msg, &mut stream);
+
+        //TODO read response
+
         Ok(())
     }
 
@@ -107,8 +114,21 @@ impl DHTService {
     }
 }
 
-fn create_join_msg(tokens: &Vec<i64>, addr: &SocketAddrV4) -> DHTMsg {
-    let socket_addr = create_socket_addr(addr);
+fn write_dht_msg(msg: &DHTMsg, stream: &mut TcpStream) -> Result<(),String> {
+    let size = msg.compute_size();
+    debug!("writing dht message with size:{}", size);
+
+    let size_bytes = [size as u8, (size >> 8) as u8, (size >> 16) as u8, (size >> 24) as u8];
+    stream.write(&size_bytes).ok().expect("unable to write dht msg size to tcp stream");
+    
+    let mut coded_output_stream = CodedOutputStream::new(stream);
+    msg.write_to_with_cached_sizes(&mut coded_output_stream).ok().expect("unable to write dht msg to coded output stream");
+
+    Ok(())
+}
+
+fn create_join_msg(tokens: &Vec<i64>, ip: String, port: u32) -> DHTMsg {
+    let socket_addr = create_socket_addr(ip, port);
     let mut join_msg = JoinMsg::new();
     join_msg.set_tokens(tokens.clone());
     join_msg.set_address(socket_addr);
@@ -119,10 +139,10 @@ fn create_join_msg(tokens: &Vec<i64>, addr: &SocketAddrV4) -> DHTMsg {
     dht_msg
 }
 
-fn create_socket_addr(addr: &SocketAddrV4) -> SocketAddr {
+fn create_socket_addr(ip_address: String, port: u32) -> SocketAddr {
     let mut socket_addr = SocketAddr::new();
-    socket_addr.set_ip_address(format!("{}", addr.ip()));
-    socket_addr.set_port(addr.port() as u32);
+    socket_addr.set_ip_address(ip_address);
+    socket_addr.set_port(port);
 
     socket_addr
 }
