@@ -19,22 +19,20 @@ message HeartbeatMsg {
 
 message JoinMsg {
 	repeated int64 tokens = 1;
-	SocketAddr address = 2;
+	string  address = 2;
 }
 
 message PeerTableDumpMsg {
-	map<int64, SocketAddr> peer_table = 1;
+	map<int64,string> peer_table = 1;
 }
 
-message SocketAddr {
-	string ip_address = 1;
-	uint32 port = 2;
-}
-
-message FuzzyDBMsg {
+message CoterieMsg {
 	enum Type {
 		OPEN_WRITE_STREAM = 0;
 	}
 
 	Type type = 1;
+}
+
+message OpenWriteStreamMsg {
 }

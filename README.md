@@ -4,9 +4,9 @@
 Distributed string fuzzy matching application.
 
 ##Compile
-protoc --rust_out=src/ proto/message.proto
+protoc --rust_out=src/ protobuf/message.proto
 cargo build
 
 ##TODO
-- all of the dht work
-- start application - transfer from older work (fuzzydb)
+- build protobuf from build.rs
+- dht work, start with join messages
