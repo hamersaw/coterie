@@ -9,6 +9,7 @@ use std::io::Read;
 use std::fs::File;
 use std::net::{SocketAddr,TcpListener,TcpStream};
 use std::str::FromStr;
+use std::sync::{Arc,RwLock};
 use std::thread;
 
 use coterie::dht::DHTService;
@@ -80,8 +81,8 @@ pub fn main() {
     };
 
     //start the dht
-    let dht_service = DHTService::new(tokens, app_addr, dht_addr, seeds);
-    dht_service.start();
+    let dht_service = Arc::new(RwLock::new(DHTService::new(tokens, app_addr, dht_addr, seeds)));
+    DHTService::start(dht_service);
 
     //start the coterie listener
     info!("starting the application with ip_address:{} port:{}", app_ip_address, app_port);

@@ -36,53 +36,53 @@ impl DHTService {
         }
     }
 
-    pub fn start(&self) {
-        debug!("starting the dht on address {}", self.dht_addr);
-
-        //sending join messages to all of the seeds
-        for seed_addr in self.seeds.clone() {
-            debug!("Sending JoinMsg to seed:{}", seed_addr);
-            self.send_join_msg(seed_addr).ok().expect("unable to send join message");
+    pub fn start(dht_service: Arc<RwLock<DHTService>>) {
+        let listener: TcpListener;
+        {
+            let dht_service = dht_service.read().ok().expect("unable to get read lock on dht service");
+            info!("starting the dht on address {}", dht_service.dht_addr);
+            listener = TcpListener::bind(dht_service.dht_addr).ok().expect("unable to bind to dht address");
         }
 
-        let listener = TcpListener::bind(self.dht_addr).ok().expect("unable to bind to address");
-        let (lookup_table, dht_peer_table) = (self.lookup_table.clone(), self.dht_peer_table.clone());
+        let dht_service_clone = dht_service.clone();
         thread::spawn(move || {
             for stream in listener.incoming() {
-                let (lookup_table, dht_peer_table) = (lookup_table.clone(), dht_peer_table.clone());
+                let dht_service = dht_service_clone.clone();
                 thread::spawn(move || {
                     let mut stream = stream.ok().expect("unable to unwrap TcpStream");
                     debug!("recv dht message");
 
-                    let mut msg = read_dht_msg(&mut stream).ok().expect("unable to read dht msg from tcp stream");
+                    let mut msg = read_dht_msg(&mut stream).ok().expect("unable to read dht msg from TcpStream");
                     match msg.get_field_type() {
                         DHTMsg_Type::JOIN => {
                             debug!("recv join msg");
                             let (tokens, app_addr) = parse_join_msg(&mut msg);
+                            let mut dht_service = dht_service.write().ok().expect("unable to get write lock on dht service");
 
                             //add dht peer
-                            //debug!("writing address '{}' to dht peer table", self.dht_addr);
                             let dht_addr = stream.peer_addr().ok().expect("unable to retrieve peer addr from stream");
-                            let mut dht_peer_table = dht_peer_table.write().unwrap();
-                            dht_peer_table.insert(dht_addr, tokens.clone());
-
+                            dht_service.add_dht_peer(dht_addr, tokens.clone());
+ 
                             //add tokens to lookup table
-                            let mut lookup_table = lookup_table.write().unwrap();
                             for token in tokens {
-                                debug!("writing token {} and addr {} to lookup table", token, app_addr);
-                                lookup_table.insert(token, app_addr);
+                                dht_service.add_token(token, app_addr);
                             }
-
-                            //TODO send back a peer table message
                         },
-                        _ => panic!("unimplemented dht msg type"),
+                        _ => panic!("unimplemented dht msg type")
                     }
                 });
             }
         });
+    
+        //sending join messages to all of the seeds
+        let dht_service = dht_service.read().ok().expect("unable to get read lock on dht service");
+        for seed_addr in dht_service.seeds.clone() {
+            debug!("Sending JoinMsg to seed:{}", seed_addr);
+            dht_service.send_join_msg(seed_addr).ok().expect("unable to send join message");
+        }
     }
 
-    pub fn lookup(&self, token: i64) -> SocketAddr {
+    fn lookup(&self, token: i64) -> SocketAddr {
         debug!("lookup on token:{}", token);
         let lookup_table = self.lookup_table.read().unwrap();
 
@@ -109,17 +109,14 @@ impl DHTService {
     }
 
     fn send_join_msg(&self, addr: SocketAddr) -> Result<(),String> {
-        let join_msg = create_join_msg(&self.tokens, format!("{}", self.app_addr));
-
+        let join_msg = create_join_msg(self.tokens.clone(), format!("{}", self.app_addr));
         let mut stream = TcpStream::connect(addr).ok().expect("unable to connect to tcp stream to send join msg");
         write_dht_msg(&join_msg, &mut stream).ok().expect("unable to write join message to tcp stream");
-
-        //TODO read response
 
         Ok(())
     }
 
-    /*fn add_token(&mut self, token: i64, addr: SocketAddrV4) {
+    fn add_token(&mut self, token: i64, addr: SocketAddr) {
         let mut lookup_table = self.lookup_table.write().unwrap();
         lookup_table.entry(token).or_insert(addr);
     }
@@ -129,15 +126,15 @@ impl DHTService {
         lookup_table.remove(token);
     }
 
-    fn add_dht_peer(&mut self, addr: SocketAddrV4, tokens: Vec<i64>) {
+    fn add_dht_peer(&mut self, addr: SocketAddr, tokens: Vec<i64>) {
         let mut dht_peer_table = self.dht_peer_table.write().unwrap();
         dht_peer_table.entry(addr).or_insert(tokens);
     }
 
-    fn remove_dht_peer(&mut self, addr: &SocketAddrV4) {
+    fn remove_dht_peer(&mut self, addr: &SocketAddr) {
         let mut dht_peer_table = self.dht_peer_table.write().unwrap();
         dht_peer_table.remove(addr);
-    }*/
+    }
 }
 
 fn write_dht_msg(msg: &DHTMsg, stream: &mut TcpStream) -> Result<(),String> {
@@ -155,10 +152,10 @@ fn read_dht_msg(stream: &mut TcpStream) -> Result<DHTMsg,String> {
     Ok(dht_msg)
 }
 
-fn create_join_msg(tokens: &Vec<i64>, addr_str: String) -> DHTMsg {
+fn create_join_msg(tokens: Vec<i64>, app_addr: String) -> DHTMsg {
     let mut join_msg = JoinMsg::new();
-    join_msg.set_tokens(tokens.clone());
-    join_msg.set_address(addr_str);
+    join_msg.set_tokens(tokens);
+    join_msg.set_address(app_addr);
 
     let mut msg = DHTMsg::new();
     msg.set_field_type(DHTMsg_Type::JOIN);

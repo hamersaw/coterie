@@ -7,6 +7,10 @@ Distributed string fuzzy matching application.
 protoc --rust_out=src/ protobuf/message.proto
 cargo build
 
+##Run
+env RUST_LOG=debug ./target/debug/coterie examples/config.toml
+env RUST_LOG=debug ./target/debug/coterie examples/config2.toml
+
 ##TODO
 - build protobuf from build.rs
 - dht work, start with join messages
