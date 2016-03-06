@@ -5,25 +5,27 @@ message DHTMsg {
 	enum Type {
 		HEARTBEAT = 0;
 		JOIN = 1;
-		PEER_TABLE_DUMP = 2;
+		LOOKUP_DUMP = 2;
 	}
 
 	Type type = 1;
 	HeartbeatMsg heartbeat_msg = 2;
 	JoinMsg join_msg = 3;
-	PeerTableDumpMsg peer_table_dump_msg = 4;
+	LookupDumpMsg lookup_dump_msg = 4;
 }
 
 message HeartbeatMsg {
 }
 
 message JoinMsg {
-	repeated int64 tokens = 1;
-	string  address = 2;
+	string dht_address = 1;
+	string application_address = 2;
+	repeated int64 tokens = 3;
 }
 
-message PeerTableDumpMsg {
-	map<int64,string> peer_table = 1;
+message LookupDumpMsg {
+	string dht_address = 1;
+	map<int64,string> lookup_table = 2;
 }
 
 message CoterieMsg {

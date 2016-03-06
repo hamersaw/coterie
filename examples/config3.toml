@@ -1,12 +1,12 @@
-tokens = [-500,500]
+tokens = [-250,250]
 
 [application]
 ip_address = "127.0.0.1"
-port = 16605
+port = 17605
 
 [dht]
 ip_address = "127.0.0.1"
-port = 16606
+port = 17606
 
 [[seeds]]
 ip_address = "127.0.0.1"

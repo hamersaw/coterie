@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap,HashMap};
 use std::io::{Read,Write};
-use std::net::{SocketAddr,TcpListener,TcpStream};
+use std::net::{Shutdown,SocketAddr,TcpListener,TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc,RwLock};
 use std::thread;
 
-use message::{DHTMsg,DHTMsg_Type,JoinMsg};
+use message::{DHTMsg,DHTMsg_Type,JoinMsg,LookupDumpMsg,LookupDumpMsg_LookupTableEntry};
 
-use protobuf::{CodedInputStream,CodedOutputStream};
+use protobuf::{CodedInputStream,CodedOutputStream,RepeatedField};
 
 pub struct DHTService {
     tokens: Vec<i64>,
@@ -15,7 +15,7 @@ pub struct DHTService {
     dht_addr: SocketAddr,
     seeds: Vec<SocketAddr>,
     lookup_table: Arc<RwLock<BTreeMap<i64,SocketAddr>>>,
-    dht_peer_table: Arc<RwLock<HashMap<SocketAddr,Vec<i64>>>>,
+    peer_table: Arc<RwLock<HashMap<SocketAddr,Vec<i64>>>>,
 }
 
 impl DHTService {
@@ -32,7 +32,7 @@ impl DHTService {
             dht_addr: dht_addr,
             seeds: seeds,
             lookup_table: Arc::new(RwLock::new(lookup_table)),
-            dht_peer_table: Arc::new(RwLock::new(HashMap::new())),
+            peer_table: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -50,23 +50,43 @@ impl DHTService {
                 let dht_service = dht_service_clone.clone();
                 thread::spawn(move || {
                     let mut stream = stream.ok().expect("unable to unwrap TcpStream");
-                    debug!("recv dht message");
+                    debug!("recv dht msg");
 
                     let mut msg = read_dht_msg(&mut stream).ok().expect("unable to read dht msg from TcpStream");
                     match msg.get_field_type() {
                         DHTMsg_Type::JOIN => {
                             debug!("recv join msg");
-                            let (tokens, app_addr) = parse_join_msg(&mut msg);
+                            let (dht_addr, app_addr, tokens) = parse_join_msg(&mut msg);
                             let mut dht_service = dht_service.write().ok().expect("unable to get write lock on dht service");
 
-                            //add dht peer
-                            let dht_addr = stream.peer_addr().ok().expect("unable to retrieve peer addr from stream");
-                            dht_service.add_dht_peer(dht_addr, tokens.clone());
- 
-                            //add tokens to lookup table
+                            if dht_service.contains_peer(&dht_addr) {
+                                return;
+                            }
+
+                            //forward join msg to all other nodes in dht
+                            {
+                                let peer_table = dht_service.peer_table.read().ok().expect("unable to get read lock on dht peer table");
+                                for addr in peer_table.keys() {
+                                    let mut stream = TcpStream::connect(addr).ok().expect(&format!("unable to connect to address {}", addr));
+                                    write_dht_msg(&msg, &mut stream).ok().expect("unable to forward join msg");
+                                    stream.shutdown(Shutdown::Both).unwrap();
+                                }
+                            }
+
+                            //add dht addr to peer table and tokens to lookup table
+                            dht_service.add_peer(dht_addr, tokens.clone());
                             for token in tokens {
                                 dht_service.add_token(token, app_addr);
                             }
+
+                            //send peer table dump msg to joining node
+                            let mut stream = TcpStream::connect(dht_addr).ok().expect(&format!("unable to connect to joining node address {}", dht_addr));
+                            let peer_table_dump_msg = dht_service.create_lookup_dump_msg();
+                            write_dht_msg(&peer_table_dump_msg, &mut stream).ok().expect("unable to send peer table dump msg");
+                            stream.shutdown(Shutdown::Both).unwrap();
+                        },
+                        DHTMsg_Type::LOOKUP_DUMP => {
+                            debug!("recv lookup dump msg");
                         },
                         _ => panic!("unimplemented dht msg type")
                     }
@@ -77,12 +97,15 @@ impl DHTService {
         //sending join messages to all of the seeds
         let dht_service = dht_service.read().ok().expect("unable to get read lock on dht service");
         for seed_addr in dht_service.seeds.clone() {
-            debug!("Sending JoinMsg to seed:{}", seed_addr);
-            dht_service.send_join_msg(seed_addr).ok().expect("unable to send join message");
+            debug!("sending JoinMsg to seed:{}", seed_addr);
+            let mut stream = TcpStream::connect(seed_addr).ok().expect(&format!("unable to connect to seed address {}", seed_addr));
+
+            let join_msg = dht_service.create_join_msg();
+            write_dht_msg(&join_msg, &mut stream).ok().expect("unable to send join msg");
         }
     }
 
-    fn lookup(&self, token: i64) -> SocketAddr {
+    pub fn lookup(&self, token: i64) -> SocketAddr {
         debug!("lookup on token:{}", token);
         let lookup_table = self.lookup_table.read().unwrap();
 
@@ -108,14 +131,6 @@ impl DHTService {
         *first_tuple.1
     }
 
-    fn send_join_msg(&self, addr: SocketAddr) -> Result<(),String> {
-        let join_msg = create_join_msg(self.tokens.clone(), format!("{}", self.app_addr));
-        let mut stream = TcpStream::connect(addr).ok().expect("unable to connect to tcp stream to send join msg");
-        write_dht_msg(&join_msg, &mut stream).ok().expect("unable to write join message to tcp stream");
-
-        Ok(())
-    }
-
     fn add_token(&mut self, token: i64, addr: SocketAddr) {
         let mut lookup_table = self.lookup_table.write().unwrap();
         lookup_table.entry(token).or_insert(addr);
@@ -126,14 +141,51 @@ impl DHTService {
         lookup_table.remove(token);
     }
 
-    fn add_dht_peer(&mut self, addr: SocketAddr, tokens: Vec<i64>) {
-        let mut dht_peer_table = self.dht_peer_table.write().unwrap();
-        dht_peer_table.entry(addr).or_insert(tokens);
+    fn contains_peer(&mut self, addr: &SocketAddr) -> bool {
+        let peer_table = self.peer_table.read().unwrap();
+        peer_table.contains_key(addr)
     }
 
-    fn remove_dht_peer(&mut self, addr: &SocketAddr) {
-        let mut dht_peer_table = self.dht_peer_table.write().unwrap();
-        dht_peer_table.remove(addr);
+    fn add_peer(&mut self, addr: SocketAddr, tokens: Vec<i64>) {
+        let mut peer_table = self.peer_table.write().unwrap();
+        peer_table.entry(addr).or_insert(tokens);
+    }
+
+    fn remove_peer(&mut self, addr: &SocketAddr) {
+        let mut peer_table = self.peer_table.write().unwrap();
+        peer_table.remove(addr);
+    }
+
+    fn create_join_msg(&self) -> DHTMsg {
+        let mut join_msg = JoinMsg::new();
+        join_msg.set_dht_address(format!("{}", self.dht_addr));
+        join_msg.set_application_address(format!("{}", self.app_addr));
+        join_msg.set_tokens(self.tokens.clone());
+
+        let mut msg = DHTMsg::new();
+        msg.set_field_type(DHTMsg_Type::JOIN);
+        msg.set_join_msg(join_msg);
+        msg
+    }
+
+    fn create_lookup_dump_msg(&self) -> DHTMsg {
+        let mut lookup_fields: RepeatedField<LookupDumpMsg_LookupTableEntry> = RepeatedField::new();
+        let lookup_table = self.lookup_table.read().unwrap();
+        for (token, addr) in lookup_table.iter() {
+            let mut field = LookupDumpMsg_LookupTableEntry::new();
+            field.set_key(*token);
+            field.set_value(format!("{}", addr));
+            lookup_fields.push(field);
+        }
+
+        let mut lookup_dump_msg = LookupDumpMsg::new();
+        lookup_dump_msg.set_dht_address(format!("{}", self.dht_addr));
+        lookup_dump_msg.set_lookup_table(lookup_fields);
+
+        let mut msg = DHTMsg::new();
+        msg.set_field_type(DHTMsg_Type::LOOKUP_DUMP);
+        msg.set_lookup_dump_msg(lookup_dump_msg);
+        msg
     }
 }
 
@@ -141,7 +193,7 @@ fn write_dht_msg(msg: &DHTMsg, stream: &mut TcpStream) -> Result<(),String> {
     let mut coded_output_stream = CodedOutputStream::new(stream);
     coded_output_stream.write_message_no_tag(msg).ok().expect("unable to write dht msg to stream");
     coded_output_stream.flush().ok().expect("unable to flush coded output stream");
-
+ 
     Ok(())
 }
 
@@ -152,21 +204,15 @@ fn read_dht_msg(stream: &mut TcpStream) -> Result<DHTMsg,String> {
     Ok(dht_msg)
 }
 
-fn create_join_msg(tokens: Vec<i64>, app_addr: String) -> DHTMsg {
-    let mut join_msg = JoinMsg::new();
-    join_msg.set_tokens(tokens);
-    join_msg.set_address(app_addr);
+fn parse_join_msg(msg: &mut DHTMsg) -> (SocketAddr,SocketAddr,Vec<i64>) {
+    let mut join_msg = msg.mut_join_msg();
+    let dht_addr = SocketAddr::from_str(join_msg.get_dht_address()).ok().expect("unable to parse dht address from join msg");
+    let app_addr = SocketAddr::from_str(join_msg.get_application_address()).ok().expect("unable to parse application address from join msg");
+    let tokens = join_msg.take_tokens();
 
-    let mut msg = DHTMsg::new();
-    msg.set_field_type(DHTMsg_Type::JOIN);
-    msg.set_join_msg(join_msg);
-    msg
+    (dht_addr, app_addr, tokens)
 }
 
-fn parse_join_msg(msg: &mut DHTMsg) -> (Vec<i64>,SocketAddr) {
-    let mut join_msg = msg.mut_join_msg();
-    let tokens = join_msg.take_tokens();
-    let addr = SocketAddr::from_str(join_msg.get_address()).ok().expect("unable to parse socket address form join message");
-
-    (tokens, addr)
+fn parse_peer_table_dump_msg(msg: &mut DHTMsg) ->  BTreeMap<i64,SocketAddr> {
+    unimplemented!();
 }
