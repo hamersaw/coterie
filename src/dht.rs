@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::{Arc,RwLock};
 use std::thread;
 
-use message::{DHTMsg,DHTMsg_Type,JoinMsg,LookupDumpMsg,LookupDumpMsg_LookupTableEntry};
+use message::{DHTMsg,DHTMsg_Type,JoinMsg,DumpMsg,DumpMsg_LookupTableEntry};
 
 use protobuf::{CodedInputStream,CodedOutputStream,RepeatedField};
 
@@ -50,9 +50,8 @@ impl DHTService {
                 let dht_service = dht_service_clone.clone();
                 thread::spawn(move || {
                     let mut stream = stream.ok().expect("unable to unwrap TcpStream");
-                    debug!("recv dht msg");
-
                     let mut msg = read_dht_msg(&mut stream).ok().expect("unable to read dht msg from TcpStream");
+
                     match msg.get_field_type() {
                         DHTMsg_Type::JOIN => {
                             debug!("recv join msg");
@@ -81,12 +80,20 @@ impl DHTService {
 
                             //send peer table dump msg to joining node
                             let mut stream = TcpStream::connect(dht_addr).ok().expect(&format!("unable to connect to joining node address {}", dht_addr));
-                            let peer_table_dump_msg = dht_service.create_lookup_dump_msg();
+                            let peer_table_dump_msg = dht_service.create_dump_msg();
                             write_dht_msg(&peer_table_dump_msg, &mut stream).ok().expect("unable to send peer table dump msg");
                             stream.shutdown(Shutdown::Both).unwrap();
                         },
-                        DHTMsg_Type::LOOKUP_DUMP => {
+                        DHTMsg_Type::DUMP => {
                             debug!("recv lookup dump msg");
+                            let (dht_addr,tokens,lookup_table) = parse_dump_msg(&mut msg);
+                            let mut dht_service = dht_service.write().ok().expect("unable to get write lock on dht service");
+
+                            //add dht addr to peer table
+                            dht_service.add_peer(dht_addr, tokens);
+                            for (token, addr) in lookup_table.iter() {
+                                dht_service.add_token(*token, *addr);
+                            }
                         },
                         _ => panic!("unimplemented dht msg type")
                     }
@@ -132,6 +139,7 @@ impl DHTService {
     }
 
     fn add_token(&mut self, token: i64, addr: SocketAddr) {
+        trace!("adding token {} address {}", token, addr);
         let mut lookup_table = self.lookup_table.write().unwrap();
         lookup_table.entry(token).or_insert(addr);
     }
@@ -147,6 +155,7 @@ impl DHTService {
     }
 
     fn add_peer(&mut self, addr: SocketAddr, tokens: Vec<i64>) {
+        trace!("adding peer {}", addr);
         let mut peer_table = self.peer_table.write().unwrap();
         peer_table.entry(addr).or_insert(tokens);
     }
@@ -168,23 +177,24 @@ impl DHTService {
         msg
     }
 
-    fn create_lookup_dump_msg(&self) -> DHTMsg {
-        let mut lookup_fields: RepeatedField<LookupDumpMsg_LookupTableEntry> = RepeatedField::new();
+    fn create_dump_msg(&self) -> DHTMsg {
+        let mut lookup_fields: RepeatedField<DumpMsg_LookupTableEntry> = RepeatedField::new();
         let lookup_table = self.lookup_table.read().unwrap();
         for (token, addr) in lookup_table.iter() {
-            let mut field = LookupDumpMsg_LookupTableEntry::new();
+            let mut field = DumpMsg_LookupTableEntry::new();
             field.set_key(*token);
             field.set_value(format!("{}", addr));
             lookup_fields.push(field);
         }
 
-        let mut lookup_dump_msg = LookupDumpMsg::new();
-        lookup_dump_msg.set_dht_address(format!("{}", self.dht_addr));
-        lookup_dump_msg.set_lookup_table(lookup_fields);
+        let mut dump_msg = DumpMsg::new();
+        dump_msg.set_dht_address(format!("{}", self.dht_addr));
+        dump_msg.set_tokens(self.tokens.clone());
+        dump_msg.set_lookup_table(lookup_fields);
 
         let mut msg = DHTMsg::new();
-        msg.set_field_type(DHTMsg_Type::LOOKUP_DUMP);
-        msg.set_lookup_dump_msg(lookup_dump_msg);
+        msg.set_field_type(DHTMsg_Type::DUMP);
+        msg.set_dump_msg(dump_msg);
         msg
     }
 }
@@ -213,6 +223,16 @@ fn parse_join_msg(msg: &mut DHTMsg) -> (SocketAddr,SocketAddr,Vec<i64>) {
     (dht_addr, app_addr, tokens)
 }
 
-fn parse_peer_table_dump_msg(msg: &mut DHTMsg) ->  BTreeMap<i64,SocketAddr> {
-    unimplemented!();
+fn parse_dump_msg(msg: &mut DHTMsg) -> (SocketAddr,Vec<i64>,HashMap<i64,SocketAddr>) {
+    let mut dump_msg = msg.mut_dump_msg();
+    let dht_addr = SocketAddr::from_str(dump_msg.get_dht_address()).ok().expect("unable to parse dht address from lookup dump msg");
+    let tokens = dump_msg.take_tokens();
+
+    let mut lookup_table = HashMap::new();
+    for field in dump_msg.take_lookup_table().iter() {
+        let addr = SocketAddr::from_str(&format!("{}", field.get_value())).ok().expect("unable to parse address into socket address from lookup dump msg");
+        lookup_table.insert(field.get_key(), addr);
+    }
+
+    (dht_addr, tokens, lookup_table)
 }

@@ -59,12 +59,10 @@ pub fn main() {
     let app_ip_address = table.lookup("application.ip_address").expect("Unable to parse application.ip_address from toml configuration").as_str().unwrap();
     let app_port = table.lookup("application.port").expect("Unable to parse application.port from toml configuration").as_integer().expect("Unable to parse application.port as integer");
     let app_addr = SocketAddr::from_str(&format!("{}:{}", app_ip_address, app_port)).ok().expect("unable to parse application address into socket address");
-    //let app_addr = parse_socket_addr_v4(&app_ip_address, app_port as u16).ok().expect("Error parsing application address");
 
     let dht_ip_address = table.lookup("dht.ip_address").expect("Unable to parse dht.ip_address from toml configuration").as_str().unwrap();
     let dht_port = table.lookup("dht.port").expect("Unable to parse dht.port from toml configuration").as_integer().expect("Unable to parse dht.port as integer");
     let dht_addr = SocketAddr::from_str(&format!("{}:{}", dht_ip_address, dht_port)).ok().expect("unable to parse dht address into socket address");
-    //let dht_addr = parse_socket_addr_v4(&dht_ip_address, dht_port as u16).ok().expect("Error parsing dht address");
 
     let seeds: Vec<SocketAddr> = match table.lookup("seeds") {
         Some(value) => {

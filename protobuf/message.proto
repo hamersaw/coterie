@@ -5,13 +5,13 @@ message DHTMsg {
 	enum Type {
 		HEARTBEAT = 0;
 		JOIN = 1;
-		LOOKUP_DUMP = 2;
+		DUMP = 2;
 	}
 
 	Type type = 1;
 	HeartbeatMsg heartbeat_msg = 2;
 	JoinMsg join_msg = 3;
-	LookupDumpMsg lookup_dump_msg = 4;
+	DumpMsg dump_msg = 4;
 }
 
 message HeartbeatMsg {
@@ -23,9 +23,10 @@ message JoinMsg {
 	repeated int64 tokens = 3;
 }
 
-message LookupDumpMsg {
+message DumpMsg {
 	string dht_address = 1;
-	map<int64,string> lookup_table = 2;
+	repeated int64 tokens = 2;
+	map<int64,string> lookup_table = 3;
 }
 
 message CoterieMsg {
