@@ -14,4 +14,4 @@ Distributed string fuzzy matching application.
 
 ##TODO
 - build protobuf from build.rs
-- dht work, start with join messages
+- applicatin work

@@ -7,15 +7,15 @@ extern crate toml;
 use std::env;
 use std::io::Read;
 use std::fs::File;
-use std::net::{SocketAddr,TcpListener,TcpStream};
+use std::net::{SocketAddr,TcpListener};
 use std::str::FromStr;
 use std::sync::{Arc,RwLock};
 use std::thread;
 
+use coterie::{read_coterie_msg,write_coterie_msg};
 use coterie::dht::DHTService;
-use coterie::message::{CoterieMsg,CoterieMsg_Type};
+use coterie::message::CoterieMsg_Type;
 
-use protobuf::{CodedInputStream,CodedOutputStream};
 use toml::Value::Table;
 
 pub fn main() {
@@ -97,19 +97,4 @@ pub fn main() {
             }
         });
     }
-}
-
-fn write_coterie_msg(msg: &CoterieMsg, stream: &mut TcpStream) -> Result<(),String> {
-    let mut coded_output_stream = CodedOutputStream::new(stream);
-    coded_output_stream.write_message_no_tag(msg).ok().expect("unable to write coterie msg to stream");
-    coded_output_stream.flush().ok().expect("unable to flush coded output stream");
-
-    Ok(())
-}
-
-fn read_coterie_msg(stream: &mut TcpStream) -> Result<CoterieMsg,String> {
-    let mut coded_input_stream = CodedInputStream::new(stream);
-    let coterie_msg: CoterieMsg = coded_input_stream.read_message().ok().expect("unable to read coterie msg from stream`");
-
-    Ok(coterie_msg)
 }
