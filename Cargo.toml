@@ -8,6 +8,7 @@ protobuf = "1.0"
 
 [dependencies]
 argparse = "0.2"
+csv = "0.14"
 env_logger = "0.3"
 log = "0.3"
 nom = "1.0"
