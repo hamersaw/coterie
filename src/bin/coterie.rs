@@ -14,7 +14,7 @@ use std::thread;
 
 use coterie::{read_coterie_msg,write_coterie_msg};
 use coterie::dht::DHTService;
-use coterie::message::CoterieMsg_Type;
+use coterie::message::{CoterieMsg_Type};
 
 use toml::Value::Table;
 
@@ -88,13 +88,28 @@ pub fn main() {
     for stream in listener.incoming() {
         let mut stream = stream.ok().expect("Unable to unwrap TcpStream");
         thread::spawn(move || {
-            let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read dht msg from tcp stream");
+            let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie msg from tcp stream");
             match msg.get_field_type() {
                 CoterieMsg_Type::OPEN_WRITE_STREAM => {
-                    println!("handle openw write stream msg");
+                    let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie message from open write stream");
+
+                    match msg.get_field_type() {
+                        CoterieMsg_Type::WRITE_ENTITIES => {
+                            println!("write entities msg");
+                        },
+                        CoterieMsg_Type::WRITE_ENTITY => {
+                            println!("write entity msg");
+                        },
+                        CoterieMsg_Type::CLOSE_WRITE_STREAM => break,
+                        _ => panic!("unexpected msg type over write stream"),
+                    }
+
+                    //close streams
                 },
-                //_ => panic!("unimplemented coterie msg type")
+                _ => panic!("unimplemented coterie msg type")
             }
         });
     }
 }
+
+

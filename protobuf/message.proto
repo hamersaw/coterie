@@ -9,12 +9,8 @@ message DHTMsg {
 	}
 
 	Type type = 1;
-	HeartbeatMsg heartbeat_msg = 2;
-	JoinMsg join_msg = 3;
-	DumpMsg dump_msg = 4;
-}
-
-message HeartbeatMsg {
+	JoinMsg join_msg = 2;
+	DumpMsg dump_msg = 3;
 }
 
 message JoinMsg {
@@ -31,11 +27,25 @@ message DumpMsg {
 
 message CoterieMsg {
 	enum Type {
-		OPEN_WRITE_STREAM = 0;
+		CLOSE_WRITE_STREAM = 0;
+		OPEN_WRITE_STREAM = 1;
+		WRITE_ENTITIES = 2;
+		WRITE_ENTITY = 3;
 	}
 
 	Type type = 1;
+	WriteEntitiesMsg write_entities_msg = 2;
+	WriteEntityMsg write_entity_msg = 3;
 }
 
-message OpenWriteStreamMsg {
+message WriteEntitiesMsg {
+	repeated Entity entity = 1;
+}
+
+message WriteEntityMsg {
+	Entity entity = 1;
+}
+
+message Entity {
+	map<string,string> entity = 1;
 }

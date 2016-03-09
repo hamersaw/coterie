@@ -1,15 +1,20 @@
 extern crate argparse;
 extern crate coterie;
+extern crate csv;
 extern crate nom;
+extern crate protobuf;
 
 use std::io;
 use std::io::prelude::*; //needed for flushing stdout
-use std::net::{SocketAddr,TcpStream};
+use std::net::{Shutdown,SocketAddr,TcpStream};
 use std::str::FromStr;
 
+use coterie::write_coterie_msg;
 use coterie::parser::Command::{Exit,Help,Load,Query};
+use coterie::message::{CoterieMsg,CoterieMsg_Type,Entity,WriteEntitiesMsg,Entity_EntityEntry};
 
 use argparse::{ArgumentParser,Store};
+use protobuf::RepeatedField;
 
 static HELP_MSG: &'static str = 
 "   EXIT => exit the session
@@ -20,7 +25,7 @@ static HELP_MSG: &'static str =
 fn main() {
     let mut host_ip: String = "127.0.0.1".to_string();
     let mut host_port: u16 = 15605;
-    let mut batch_size: u16 = 250;
+    let mut batch_size: usize = 250;
     {    //solely to limit scope of parser variable
         let mut parser = ArgumentParser::new();
         parser.set_description("start a coterie client session");
@@ -64,11 +69,89 @@ fn main() {
             Exit => break,
             Help => println!("{}", HELP_MSG),
             Load(filename) => {
-                println!("TODO - load {}", filename);
+                //open csv file reader
+                let reader = csv::Reader::from_file(filename.clone());
+                if !reader.is_ok() {
+                    println!("file '{}' does not exist or cannot be opened", filename);
+                    continue;
+                }
+                let mut reader = reader.unwrap();
+
+                //read csv file header
+                let header = reader.headers().unwrap();
+
+                //send open write stream msg
+                let open_write_stream_msg = create_open_write_stream_msg();
+                let mut stream = TcpStream::connect(host_addr).ok().expect("unable to connect to coterie server");
+                write_coterie_msg(&open_write_stream_msg, &mut stream).ok().expect("unable to write open write stream msg");
+
+                //loop through records
+                let mut record_count = 0;
+                let mut record_buffer = Vec::new();
+                for record in reader.records() {
+                    let record = record.unwrap();
+                    record_buffer.push(record);
+                    record_count += 1;
+
+                    if record_buffer.len() == batch_size {
+                        let write_entities_msg = create_write_entities_msg(&header, &record_buffer);
+                        write_coterie_msg(&write_entities_msg, &mut stream).ok().expect("unable to write write entities msg");
+                        record_buffer.clear();
+                    }
+                }
+
+                if record_buffer.len() != 0 {
+                    let write_entities_msg = create_write_entities_msg(&header, &record_buffer);
+                    write_coterie_msg(&write_entities_msg, &mut stream).ok().expect("unable to write write entities msg");
+                }
+
+                //send close write stream msg
+                let close_write_stream_msg = create_close_write_stream_msg();
+                write_coterie_msg(&close_write_stream_msg, &mut stream).ok().expect("unable to write close write stream msg");
+                stream.shutdown(Shutdown::Both).ok().expect("unable to close write stream");
+
+                println!("total record count:{}", record_count);
             },
             Query(_, _) => {
                 println!("TODO - execute query");
             },
         }
     }
+}
+
+fn create_close_write_stream_msg() -> CoterieMsg {
+    let mut msg = CoterieMsg::new();
+    msg.set_field_type(CoterieMsg_Type::CLOSE_WRITE_STREAM);
+    msg
+}
+
+fn create_open_write_stream_msg() -> CoterieMsg {
+    let mut msg = CoterieMsg::new();
+    msg.set_field_type(CoterieMsg_Type::OPEN_WRITE_STREAM);
+    msg
+}
+
+fn create_write_entities_msg(header: &Vec<String>, records: &Vec<Vec<String>>) -> CoterieMsg {
+    let mut entities: RepeatedField<Entity> = RepeatedField::new();
+    for record in records {
+        let mut entity = Entity::new();
+        let mut entries = RepeatedField::new();
+        for (i, key) in header.iter().enumerate() {
+            let mut entry = Entity_EntityEntry::new();
+            entry.set_key(key.clone());
+            entry.set_value(record[i].clone());
+            entries.push(entry);
+        }
+
+        entity.set_entity(entries);
+        entities.push(entity);
+    }
+
+    let mut write_entities_msg = WriteEntitiesMsg::new();
+    write_entities_msg.set_entity(entities);
+
+    let mut msg = CoterieMsg::new();
+    msg.set_field_type(CoterieMsg_Type::WRITE_ENTITIES);
+    msg.set_write_entities_msg(write_entities_msg);
+    msg
 }
