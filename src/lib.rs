@@ -29,7 +29,11 @@ pub fn write_coterie_msg(msg: &CoterieMsg, stream: &mut TcpStream) -> Result<(),
 
 pub fn read_coterie_msg(stream: &mut TcpStream) -> Result<CoterieMsg,String> {
     let mut coded_input_stream = CodedInputStream::new(stream);
-    let coterie_msg: CoterieMsg = coded_input_stream.read_message().ok().expect("unable to read coterie msg from stream`");
+    //let coterie_msg: CoterieMsg = coded_input_stream.read_message().ok().expect("unable to read coterie msg from stream`");
+    let coterie_msg: CoterieMsg = match coded_input_stream.read_message() {
+        Ok(coterie_msg) => coterie_msg,
+        Err(e) => panic!("{}", e),
+    };
 
     Ok(coterie_msg)
 }

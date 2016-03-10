@@ -9,7 +9,7 @@ use std::io::prelude::*; //needed for flushing stdout
 use std::net::{Shutdown,SocketAddr,TcpStream};
 use std::str::FromStr;
 
-use coterie::write_coterie_msg;
+use coterie::{read_coterie_msg,write_coterie_msg};
 use coterie::parser::Command::{Exit,Help,Load,Query};
 use coterie::message::{CoterieMsg,CoterieMsg_Type,Entity,WriteEntitiesMsg,Entity_EntityEntry};
 
@@ -94,8 +94,17 @@ fn main() {
                     record_count += 1;
 
                     if record_buffer.len() == batch_size {
+                        println!("writing write entities msg for records {}", record_count);
                         let write_entities_msg = create_write_entities_msg(&header, &record_buffer);
                         write_coterie_msg(&write_entities_msg, &mut stream).ok().expect("unable to write write entities msg");
+
+                        let msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie message");
+                        match msg.get_field_type() {
+                            CoterieMsg_Type::RESULT => {
+                                
+                            },
+                            _ => panic!("unexpected return message type"),
+                        }
                         record_buffer.clear();
                     }
                 }

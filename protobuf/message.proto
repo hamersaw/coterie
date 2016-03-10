@@ -29,13 +29,24 @@ message CoterieMsg {
 	enum Type {
 		CLOSE_WRITE_STREAM = 0;
 		OPEN_WRITE_STREAM = 1;
-		WRITE_ENTITIES = 2;
-		WRITE_ENTITY = 3;
+		RESULT = 2;
+		WRITE_ENTITIES = 3;
+		WRITE_ENTITY = 4;
 	}
 
 	Type type = 1;
-	WriteEntitiesMsg write_entities_msg = 2;
-	WriteEntityMsg write_entity_msg = 3;
+	ResultMsg result_msg = 2;
+	WriteEntitiesMsg write_entities_msg = 3;
+	WriteEntityMsg write_entity_msg = 4;
+}
+
+message Entity {
+	map<string,string> entity = 1;
+}
+
+message ResultMsg {
+	bool success = 1;
+	string error_message = 2;
 }
 
 message WriteEntitiesMsg {
@@ -44,8 +55,4 @@ message WriteEntitiesMsg {
 
 message WriteEntityMsg {
 	Entity entity = 1;
-}
-
-message Entity {
-	map<string,string> entity = 1;
 }
