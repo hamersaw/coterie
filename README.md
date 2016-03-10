@@ -14,4 +14,5 @@ Distributed string fuzzy matching application.
 
 ##TODO
 - build protobuf from build.rs
+- add logging output to coterie and coterie-cli
 - applicatin work

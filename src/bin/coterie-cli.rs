@@ -2,19 +2,17 @@ extern crate argparse;
 extern crate coterie;
 extern crate csv;
 extern crate nom;
-extern crate protobuf;
 
 use std::io;
 use std::io::prelude::*; //needed for flushing stdout
 use std::net::{Shutdown,SocketAddr,TcpStream};
 use std::str::FromStr;
 
-use coterie::{read_coterie_msg,write_coterie_msg};
+use coterie::{create_close_write_stream_msg,create_open_write_stream_msg,create_write_entities_msg,read_coterie_msg,write_coterie_msg};
 use coterie::parser::Command::{Exit,Help,Load,Query};
-use coterie::message::{CoterieMsg,CoterieMsg_Type,Entity,WriteEntitiesMsg,Entity_EntityEntry};
+use coterie::message::CoterieMsg_Type;
 
 use argparse::{ArgumentParser,Store};
-use protobuf::RepeatedField;
 
 static HELP_MSG: &'static str = 
 "   EXIT => exit the session
@@ -126,41 +124,4 @@ fn main() {
             },
         }
     }
-}
-
-fn create_close_write_stream_msg() -> CoterieMsg {
-    let mut msg = CoterieMsg::new();
-    msg.set_field_type(CoterieMsg_Type::CLOSE_WRITE_STREAM);
-    msg
-}
-
-fn create_open_write_stream_msg() -> CoterieMsg {
-    let mut msg = CoterieMsg::new();
-    msg.set_field_type(CoterieMsg_Type::OPEN_WRITE_STREAM);
-    msg
-}
-
-fn create_write_entities_msg(header: &Vec<String>, records: &Vec<Vec<String>>) -> CoterieMsg {
-    let mut entities: RepeatedField<Entity> = RepeatedField::new();
-    for record in records {
-        let mut entity = Entity::new();
-        let mut entries = RepeatedField::new();
-        for (i, key) in header.iter().enumerate() {
-            let mut entry = Entity_EntityEntry::new();
-            entry.set_key(key.clone());
-            entry.set_value(record[i].clone());
-            entries.push(entry);
-        }
-
-        entity.set_entity(entries);
-        entities.push(entity);
-    }
-
-    let mut write_entities_msg = WriteEntitiesMsg::new();
-    write_entities_msg.set_entity(entities);
-
-    let mut msg = CoterieMsg::new();
-    msg.set_field_type(CoterieMsg_Type::WRITE_ENTITIES);
-    msg.set_write_entities_msg(write_entities_msg);
-    msg
 }

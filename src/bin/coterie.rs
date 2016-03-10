@@ -12,9 +12,9 @@ use std::str::FromStr;
 use std::sync::{Arc,RwLock};
 use std::thread;
 
-use coterie::{read_coterie_msg,write_coterie_msg};
+use coterie::{create_result_msg,read_coterie_msg,write_coterie_msg};
 use coterie::dht::DHTService;
-use coterie::message::{CoterieMsg,CoterieMsg_Type,ResultMsg};
+use coterie::message::CoterieMsg_Type;
 
 use toml::Value::Table;
 
@@ -115,15 +115,3 @@ pub fn main() {
         });
     }
 }
-
-fn create_result_msg(success: bool, error_message: String) -> CoterieMsg {
-    let mut result_msg = ResultMsg::new();
-    result_msg.set_success(success);
-    result_msg.set_error_message(error_message);
-
-    let mut msg = CoterieMsg::new();
-    msg.set_field_type(CoterieMsg_Type::RESULT);
-    msg.set_result_msg(result_msg);
-    msg
-}
-
