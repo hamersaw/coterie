@@ -5,12 +5,13 @@ extern crate protobuf;
 extern crate toml;
 
 use std::env;
+use std::collections::HashMap;
 use std::io::Read;
 use std::fs::File;
 use std::net::{Shutdown,SocketAddr,TcpListener};
 use std::str::FromStr;
 use std::sync::{Arc,RwLock};
-use std::thread;
+use std::thread::{JoinHandle,self};
 
 use coterie::{create_result_msg,read_coterie_msg,write_coterie_msg};
 use coterie::dht::DHTService;
@@ -82,36 +83,70 @@ pub fn main() {
     let dht_service = Arc::new(RwLock::new(DHTService::new(tokens, app_addr, dht_addr, seeds)));
     DHTService::start(dht_service);
 
-    //start the coterie listener
-    info!("starting the application with ip_address:{} port:{}", app_ip_address, app_port);
-    let listener = TcpListener::bind(app_addr).ok().expect("Unable to bind to address");
-    for stream in listener.incoming() {
-        let mut stream = stream.ok().expect("Unable to unwrap TcpStream");
-        thread::spawn(move || {
-            let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie msg from tcp stream");
-            match msg.get_field_type() {
-                CoterieMsg_Type::OPEN_WRITE_STREAM => {
-                    loop {
-                        let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie message from open write stream");
-                        match msg.get_field_type() {
-                            CoterieMsg_Type::WRITE_ENTITIES => {
-                                println!("write entities msg");
-                                
-                                let result_msg = create_result_msg(true, format!(""));
-                                write_coterie_msg(&result_msg, &mut stream).ok().expect("unable to write result message from write entities");
-                            },
-                            CoterieMsg_Type::WRITE_ENTITY => {
-                                println!("write entity msg");
-                            },
-                            CoterieMsg_Type::CLOSE_WRITE_STREAM => break,
-                            _ => panic!("unexpected msg type over write stream"),
-                        }
-                    }
-                },
-                _ => panic!("unimplemented coterie msg type")
-            }
+    //start coterie service
+    let coterie_service = Arc::new(RwLock::new(CoterieService::new(app_addr)));
+    let handle = CoterieService::start(coterie_service);
+    handle.join();
+}
 
-            stream.shutdown(Shutdown::Both).ok().expect("unable to close coterie stream");
-        });
+struct CoterieService {
+    addr: SocketAddr,
+    entities: Arc<RwLock<HashMap<u64,HashMap<String,String>>>>,
+    fields: Arc<RwLock<HashMap<String,HashMap<String,Vec<u64>>>>>,
+}
+
+impl CoterieService {
+    pub fn new(addr: SocketAddr) -> CoterieService {
+        CoterieService {
+            addr: addr,
+            entities: Arc::new(RwLock::new(HashMap::new())),
+            fields: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn start(coterie_service: Arc<RwLock<CoterieService>>) -> JoinHandle<()> {
+        let listener: TcpListener;
+        {
+            let coterie_service = coterie_service.read().ok().expect("unable to get read lock on coterie service");
+            info!("starting the coterie on address {}", coterie_service.addr);
+            listener = TcpListener::bind(coterie_service.addr).ok().expect("unable to bind to coterie address");
+        }
+
+        let coterie_service = coterie_service.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.ok().expect("Unable to unwrap TcpStream");
+                thread::spawn(move || {
+                    let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie msg from tcp stream");
+                    match msg.get_field_type() {
+                        CoterieMsg_Type::OPEN_WRITE_STREAM => {
+                            loop {
+                                let mut msg = read_coterie_msg(&mut stream).ok().expect("unable to read coterie message from open write stream");
+                                match msg.get_field_type() {
+                                    CoterieMsg_Type::WRITE_ENTITIES => {
+                                        println!("write entities msg");
+                                        
+                                        let result_msg = create_result_msg(true, format!(""));
+                                        write_coterie_msg(&result_msg, &mut stream).ok().expect("unable to write result message from write entities");
+                                    },
+                                    CoterieMsg_Type::WRITE_ENTITY => {
+                                        println!("write entity msg");
+                                    },
+                                    CoterieMsg_Type::CLOSE_WRITE_STREAM => break,
+                                    _ => panic!("unexpected msg type over write stream"),
+                                }
+                            }
+                        },
+                        _ => panic!("unimplemented coterie msg type")
+                    }
+
+                    stream.shutdown(Shutdown::Both).ok().expect("unable to close coterie stream");
+                });
+            }
+        })
+    }
+
+    fn add_entity(u64: token, entity: HashMap<String,String>) {
+        unimplemented!();
     }
 }

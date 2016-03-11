@@ -3,7 +3,7 @@ use std::io::{Read,Write};
 use std::net::{Shutdown,SocketAddr,TcpListener,TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc,RwLock};
-use std::thread;
+use std::thread::{JoinHandle,self};
 
 use message::{DHTMsg,DHTMsg_Type,JoinMsg,DumpMsg,DumpMsg_LookupTableEntry};
 
@@ -36,7 +36,7 @@ impl DHTService {
         }
     }
 
-    pub fn start(dht_service: Arc<RwLock<DHTService>>) {
+    pub fn start(dht_service: Arc<RwLock<DHTService>>) -> JoinHandle<()> {
         let listener: TcpListener;
         {
             let dht_service = dht_service.read().ok().expect("unable to get read lock on dht service");
@@ -45,7 +45,7 @@ impl DHTService {
         }
 
         let dht_service_clone = dht_service.clone();
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             for stream in listener.incoming() {
                 let dht_service = dht_service_clone.clone();
                 thread::spawn(move || {
@@ -110,6 +110,8 @@ impl DHTService {
             let join_msg = dht_service.create_join_msg();
             write_dht_msg(&join_msg, &mut stream).ok().expect("unable to send join msg");
         }
+
+        handle
     }
 
     pub fn lookup(&self, token: i64) -> SocketAddr {
