@@ -6,6 +6,7 @@ extern crate toml;
 
 use std::env;
 use std::collections::HashMap;
+use std::hash::{Hash,Hasher,SipHasher};
 use std::io::Read;
 use std::fs::File;
 use std::net::{Shutdown,SocketAddr,TcpListener,TcpStream};
@@ -13,7 +14,7 @@ use std::str::FromStr;
 use std::sync::{Arc,RwLock};
 use std::thread::{JoinHandle,self};
 
-use coterie::{create_result_msg,read_coterie_msg,write_coterie_msg};
+use coterie::{create_result_msg,parse_write_entities_msg,read_coterie_msg,write_coterie_msg};
 use coterie::dht::DHTService;
 use coterie::message::CoterieMsg_Type;
 
@@ -86,7 +87,7 @@ pub fn main() {
     //start coterie service
     let coterie_service = Arc::new(RwLock::new(CoterieService::new(app_addr)));
     let handle = CoterieService::start(coterie_service);
-    handle.join();
+    let _ = handle.join();
 }
 
 struct CoterieService {
@@ -140,8 +141,17 @@ fn handle_stream(coterie_service: Arc<RwLock<CoterieService>>, mut stream: &mut 
                 match msg.get_field_type() {
                     CoterieMsg_Type::WRITE_ENTITIES => {
                         println!("write entities msg");
+                        let (header, entities) = parse_write_entities_msg(&mut msg);
                         
-                        //TODO compute hash over all fields in entity
+                        //let mut streams = HashMap::new();
+                        for entity in entities.iter() {
+                            //compute entity key
+                            let mut hasher = SipHasher::new();
+                            entity.iter().map(|x| x.hash(&mut hasher));
+                            let entity_key = hasher.finish();
+
+                            //TODO lookup into dht
+                        }
 
                         let result_msg = create_result_msg(true, format!(""));
                         write_coterie_msg(&result_msg, &mut stream).ok().expect("unable to write result message from write entities");

@@ -81,3 +81,23 @@ pub fn create_write_entities_msg(header: &Vec<String>, records: &Vec<Vec<String>
     msg.set_write_entities_msg(write_entities_msg);
     msg
 }
+
+pub fn parse_write_entities_msg(msg: &mut CoterieMsg) -> (Vec<String>, Vec<Vec<String>>) {
+    let write_entities_msg = msg.get_write_entities_msg();
+    let mut header = Vec::new();
+    let mut records = Vec::new();
+    for entity in write_entities_msg.get_entity().iter() {
+        let mut record = Vec::new();
+        for (i, entry) in entity.get_entity().iter().enumerate() {
+            if header.len() < i {
+                header.push(entry.get_key().to_string());
+            }
+
+            record.push(entry.get_value().to_string());
+        }
+
+        records.push(record);
+    }
+
+    (header, records)
+}
