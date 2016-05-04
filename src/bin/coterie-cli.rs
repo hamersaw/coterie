@@ -92,7 +92,6 @@ fn main() {
                     record_count += 1;
 
                     if record_buffer.len() == batch_size {
-                        println!("writing write entities msg for records {}", record_count);
                         let write_entities_msg = create_write_entities_msg(&header, &record_buffer);
                         write_coterie_msg(&write_entities_msg, &mut stream).ok().expect("unable to write write entities msg");
 
