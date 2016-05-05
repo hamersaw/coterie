@@ -6,17 +6,26 @@ pub mod dht;
 pub mod message;
 pub mod parser;
 
-use std::net::TcpStream;
+use std::collections::HashMap;
+use std::net::{SocketAddr, TcpStream};
 
-use message::{Entity,Entity_EntityEntry,CoterieMsg,CoterieMsg_Type,ResultMsg,WriteEntitiesMsg};
+use message::{Entity, Entity_EntityEntry, CoterieMsg, CoterieMsg_Type, ResultMsg, WriteEntitiesMsg, WriteEntityMsg};
 
-use protobuf::{CodedInputStream,CodedOutputStream,RepeatedField};
+use protobuf::{CodedInputStream, CodedOutputStream, RepeatedField};
 
 #[cfg(test)]
 mod test {
     #[test]
     fn it_works() {
     }
+}
+
+pub fn open_write_stream(socket_addr: SocketAddr) -> TcpStream {
+    let mut stream = TcpStream::connect(socket_addr).ok().expect("unable to open");
+    let open_write_stream_msg = create_open_write_stream_msg();
+    write_coterie_msg(&open_write_stream_msg, &mut stream).ok().expect("unable to write open write stream msg");
+    
+    stream
 }
 
 pub fn write_coterie_msg(msg: &CoterieMsg, stream: &mut TcpStream) -> Result<(),String> {
@@ -82,22 +91,37 @@ pub fn create_write_entities_msg(header: &Vec<String>, records: &Vec<Vec<String>
     msg
 }
 
-pub fn parse_write_entities_msg(msg: &mut CoterieMsg) -> (Vec<String>, Vec<Vec<String>>) {
+pub fn parse_write_entities_msg(msg: &mut CoterieMsg) -> Vec<HashMap<String,String>> {
     let write_entities_msg = msg.get_write_entities_msg();
-    let mut header = Vec::new();
     let mut records = Vec::new();
     for entity in write_entities_msg.get_entity().iter() {
-        let mut record = Vec::new();
-        for (i, entry) in entity.get_entity().iter().enumerate() {
-            if header.len() < i {
-                header.push(entry.get_key().to_string());
-            }
-
-            record.push(entry.get_value().to_string());
+        let mut record = HashMap::new();
+        for entry in entity.get_entity().iter() {
+            record.insert(entry.get_key().to_string(), entry.get_value().to_string());
         }
-
         records.push(record);
     }
 
-    (header, records)
+    records
+}
+
+pub fn create_write_entity_msg(record: &HashMap<String,String>) -> CoterieMsg {
+    let mut entity = Entity::new();
+    let mut entries = RepeatedField::new();
+    for (key, value) in record.iter() {
+        let mut entry = Entity_EntityEntry::new();
+        entry.set_key(key.clone());
+        entry.set_value(value.clone());
+        entries.push(entry);
+    }
+
+    entity.set_entity(entries);
+
+    let mut write_entity_msg = WriteEntityMsg::new();
+    write_entity_msg.set_entity(entity);
+
+    let mut msg = CoterieMsg::new();
+    msg.set_field_type(CoterieMsg_Type::WRITE_ENTITY);
+    msg.set_write_entity_msg(write_entity_msg);
+    msg
 }

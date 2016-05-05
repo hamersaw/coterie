@@ -5,11 +5,11 @@ extern crate nom;
 
 use std::io;
 use std::io::prelude::*; //needed for flushing stdout
-use std::net::{Shutdown,SocketAddr,TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::str::FromStr;
 
-use coterie::{create_close_write_stream_msg,create_open_write_stream_msg,create_write_entities_msg,read_coterie_msg,write_coterie_msg};
-use coterie::parser::Command::{Exit,Help,Load,Query};
+use coterie::{create_close_write_stream_msg, create_write_entities_msg, open_write_stream, read_coterie_msg, write_coterie_msg};
+use coterie::parser::Command::{Exit, Help, Load, Query};
 use coterie::message::CoterieMsg_Type;
 
 use argparse::{ArgumentParser,Store};
@@ -79,9 +79,10 @@ fn main() {
                 let header = reader.headers().unwrap();
 
                 //send open write stream msg
-                let open_write_stream_msg = create_open_write_stream_msg();
-                let mut stream = TcpStream::connect(host_addr).ok().expect("unable to connect to coterie server");
-                write_coterie_msg(&open_write_stream_msg, &mut stream).ok().expect("unable to write open write stream msg");
+                //let open_write_stream_msg = create_open_write_stream_msg();
+                //let mut stream = TcpStream::connect(host_addr).ok().expect("unable to connect to coterie server");
+                //write_coterie_msg(&open_write_stream_msg, &mut stream).ok().expect("unable to write open write stream msg");
+                let mut stream = open_write_stream(host_addr);
 
                 //loop through records
                 let mut record_count = 0;
