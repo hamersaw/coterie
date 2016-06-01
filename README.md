@@ -1,5 +1,8 @@
 #coterie
 
+##NOTE
+This repository was an attempt at converting fuzzydb to protobuf. It was a failed attempt.
+
 ##Overview
 Distributed string fuzzy matching application.
 
